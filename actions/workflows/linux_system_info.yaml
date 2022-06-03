@@ -1,0 +1,169 @@
+---
+version: 1.0
+
+description: Gathers system information
+
+input:
+  - get_sos_report: false
+
+  # DELETE AFTER TESTING!!!
+  - install_iftop: false
+
+vars:
+  - network_interface: ''
+  - current_time_output: ''
+  - machine_name_output: ''
+  - storage_utilization_output: ''
+  - cpu_utilization_output: ''
+  - ram_utilization_output: ''
+  - network_utilization_output: ''
+  - system_uptime_output: ''
+  - sos_report: ''
+  - sos_reports_dir: '/opt/encore/sos_reports'
+
+output:
+  - final_output: |
+
+      ####################
+        MACHINE
+      ####################
+
+      {{ ctx().machine_name_output }}
+
+      ####################
+        STORAGE
+      ####################
+
+      {{ ctx().storage_utilization_output }}
+
+      ####################
+        CPU
+      ####################
+
+      {{ ctx().cpu_utilization_output }}
+
+      ####################
+        RAM
+      ####################
+
+      {{ ctx().ram_utilization_output }}
+
+      ####################
+        NETWORK
+      ####################
+
+      {{ ctx().network_utilization_output }}
+
+      ####################
+        UPTIME
+      ####################
+
+      {{ ctx().system_uptime_output }}
+
+      {% if ctx().get_sos_report %}
+      ####################
+        REPORT
+      ####################
+
+      Location: {{ ctx().sos_report }}
+      {% endif %}
+
+tasks:
+  machine_name:
+    action: core.local_sudo
+    input:
+      cmd: "hostname"
+    next:
+      - when: "{{ succeeded() }}"
+        publish:
+          - machine_name_output: "{{ result().stdout }}"
+        do:
+          - storage_utilization
+
+  storage_utilization:
+    action: core.local_sudo
+    input:
+      cmd: "df -h"
+    next:
+      - when: "{{ succeeded() }}"
+        publish:
+          - storage_utilization_output: "{{ result().stdout }}"
+        do:
+          - cpu_utilization
+
+  cpu_utilization:
+    action: core.local_sudo
+    input:
+      cmd: "echo CPU Usage: $[100-$(vmstat 1 2|tail -1|awk '{print $15}')]%"
+    next:
+      - when: "{{ succeeded() }}"
+        publish:
+          - cpu_utilization_output: "{{ result().stdout }}"
+        do:
+          - ram_utilization
+
+  ram_utilization:
+    action: core.local_sudo
+    input:
+      # Displays memory stats in mebibytes
+      cmd: "vmstat -s -S MiB"
+    next:
+      - when: "{{ succeeded() }}"
+        publish:
+          - ram_utilization_output: "{{ result().stdout }}"
+        do:
+          - system_uptime
+
+  system_uptime:
+    action: core.local_sudo
+    input:
+      cmd: "uptime -p"
+    next:
+      - when: "{{ succeeded() }}"
+        publish:
+          - system_uptime_output: "{{ result().stdout }}"
+        do:
+          - network_utilization
+
+  network_utilization:
+    action: core.local_sudo
+    input:
+      cmd: sar -n DEV 1 2
+    next:
+      - when: "{{ succeeded() }}"
+        publish:
+          - network_utilization_output: "{{ result().stdout }}"
+        do:
+          - noop
+      - when: "{{ succeeded() and ctx().get_sos_report }}"
+        do:
+          - create_sos_reports_dir
+
+  create_sos_reports_dir:
+    action: core.local_sudo
+    input:
+      cmd: mkdir -p "{{ ctx().sos_reports_dir }}"
+    next:
+      - when: "{{ succeeded() }}"
+        do:
+          - create_sos_report_file_name
+
+  create_sos_report_file_name:
+    action: core.local_sudo
+    input:
+      cmd: "date '+%Y-%m-%d_%H:%M:%S'"
+    next:
+      - when: "{{ succeeded() }}"
+        publish:
+          - sos_report: "{{ ctx().sos_reports_dir }}/report_{{ result().stdout }}"
+        do:
+          - generate_sos_report
+  
+  generate_sos_report:
+    action: core.local_sudo
+    input:
+      cmd: echo sos report will go here > "{{ ctx().sos_report }}"
+    next:
+      - when: "{{ succeeded() }}"
+        do:
+          - noop

@@ -1,0 +1,19 @@
+---
+name: "linux_system_info"
+pack: default
+description: "Gathers system information periodically"
+enabled: true
+
+trigger:
+  type: "core.st2.CronTimer"
+  parameters:
+    timezone: "UTC"
+    day_of_week: "*"
+    hour: 1
+    minute: 0
+    second: 0
+
+action:
+  ref: "default.linux_system_info"
+  parameters:
+    get_sos_info: "{{ st2kv.system.linux_system_info_get_sos_report | default(false) }}"

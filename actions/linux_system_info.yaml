@@ -1,0 +1,18 @@
+---
+name: "linux_system_info"
+description: "Gathers system information"
+enabled: true
+runner_type: orquesta
+entry_point: workflows/linux_system_info.yaml
+pack: default
+parameters:
+  get_sos_report:
+    type: boolean
+    description: "Determines whether to gather sos report information and write results to file"
+    default: false
+  
+  # DELETE AFTER TESTING!!!
+  install_iftop:
+    type: boolean
+    default: false
+  

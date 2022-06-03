@@ -1,0 +1,229 @@
+---
+version: 1.0
+
+description: Gathers system information
+
+input:
+  - get_sos_report
+
+  # DELETE AFTER TESTING!!!
+  - skip_install: true
+
+vars:
+  - network_interface: ''
+  - current_time_output: ''
+  - machine_name_output: ''
+  - storage_utilization_output: ''
+  - cpu_utilization_output: ''
+  - ram_utilization_output: ''
+  - network_utilization_output: ''
+  - system_uptime_output: ''
+  - report_location_output: ''
+  - sos_reports_dir: '/opt/encore/sos_reports'
+  - final_output: |
+      ####################
+        MACHINE
+      ####################
+
+      {{ ctx().machine_name_output }}
+
+      ####################
+        STORAGE
+      ####################
+
+      {{ ctx().storage_utilization_output }}
+
+      ####################
+        CPU
+      ####################
+
+      {{ ctx().cpu_utilization_output }}
+
+      ####################
+        RAM
+      ####################
+
+      {{ ctx().ram_utilization_output }}
+
+      ####################
+        NETWORK
+      ####################
+
+      {{ ctx().network_utilization_output }}
+
+      ####################
+        UPTIME
+      ####################
+
+      {{ ctx().system_uptime_output }}
+
+      {% if ctx().get_sos_report %}
+      ####################
+        REPORT
+      ####################
+
+      Location: {{ ctx().report_location_output }}
+      {% endif %}
+
+output:
+  # - results: "{{ ctx().final_output }}"
+  - machine_name: "{{ ctx().machine_name_output }}"
+  - storage_utilization: "{{ ctx().storage_utilization_output }}"
+
+tasks:
+  dispatch_system_info:
+    action: core.noop
+    next:
+      - when: "{{ succeeded() }}"
+        do:
+          - machine_name
+          - storage_utilization
+          - cpu_utilization
+          - ram_utilization
+          - system_uptime
+          - dispatch_network
+
+  dispatch_sos_report:
+    action: core.noop
+    next:
+      - when: "{{ succeeded() and ctx().get_sos_report }}"
+        do:
+          - create_sos_reports_dir
+          - get_current_time
+          - generate_sos_report
+
+  machine_name:
+    action: core.local_sudo
+    input:
+      cmd: "hostname"
+    next:
+      - when: "{{ succeeded() }}"
+        publish:
+          - machine_name_output: "{{ result().stdout }}"
+        do:
+          - noop
+
+  storage_utilization:
+    action: core.local_sudo
+    input:
+      cmd: "df"
+    next:
+      - when: "{{ succeeded() }}"
+        publish:
+          - storage_utilization_output: "{{ result().stdout }}"
+        do:
+          - noop
+
+  cpu_utilization:
+    action: core.local_sudo
+    input:
+      # Gets the last iteration from top
+      cmd: "top -bn1 | grep '%Cpu(s):'"
+    next:
+      - when: "{{ succeeded() }}"
+        publish:
+          - cpu_utilization_output: "{{ result().stdout }}"
+        do:
+          - noop
+
+  ram_utilization:
+    action: core.local_sudo
+    input:
+      # Displays memory stats in mebibytes
+      cmd: "free -m"
+    next:
+      - when: "{{ succeeded() }}"
+        publish:
+          - ram_utilization_output: "{{ result().stdout }}"
+        do:
+          - noop
+
+  system_uptime:
+    action: core.local_sudo
+    input:
+      cmd: "uptime"
+    next:
+      - when: "{{ succeeded() }}"
+        publish:
+          - system_uptime_output: "{{ result().stdout }}"
+        do:
+          - noop
+
+  dispatch_network:
+    action: core.noop
+    next:
+      - when: "{{ succeeded() and ctx().skip_install }}"
+        do:
+          - get_network_interface
+          - network_utilization
+
+  get_network_interface:
+    action: core.local_sudo
+    input:
+      # We gather name of network interface that is default
+      # just in case if there is more than one interface available
+      cmd: "route | grep 'default' | awk '{print $(NF)}'"
+    next:
+      - when: "{{ succeeded() }}"
+        publish:
+          - network_interface: "{{ result().stdout }}"
+        do:
+          - noop
+
+  install_iftop:
+    action: core.local_sudo
+    input:
+      # Installing iftop for network utilization as it displays
+      # a good overview of network usage
+      #
+      # Plus there doesn't appear to be a good tool that comes
+      # with most distros for gathering network info
+      cmd: "yum install iftop"
+    next:
+      - when: "{{ succeeded() }}"
+        do:
+          - noop
+
+  network_utilization:
+    action: core.local_sudo
+    input:
+      # This will get the lastest snapshot from iftop and display to
+      # stdout and then immediately quit iftop
+      cmd: "iftop -t -i {{ network_interface }} | sed '/^==/ q'"
+    next:
+      - when: "{{ succeeded() }}"
+        publish:
+          - network_utilization_output: "{{ result().stdout }}"
+        do:
+          - noop
+
+  create_sos_reports_dir:
+    action: core.local_sudo
+    input:
+      cmd: "mkdir -p {{ sos_reports_dir }}"
+    next:
+      - when: "{{ succeeded() }}"
+        do:
+          - noop
+
+  get_current_time:
+    action: core.local_sudo
+    input:
+      cmd: "date '+%Y-%m-%d_%H:%M:%S'"
+    next:
+      - when: "{{ succeeded() }}"
+        publish:
+          - current_time_output: "{{ result().stdout }}"
+        do:
+          - noop
+        # do:
+        #   - generate_sos_report
+
+  generate_sos_report:
+    action: core.local_sudo
+    input:
+      cmd: "echo sos report will go here > {{ sos_reports_dir }}/report_{{ current_time_output }}"
+    next:
+      - when: "{{ succeeded() }}"
+        do:
+          - noop
